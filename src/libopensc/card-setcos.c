@@ -56,6 +56,8 @@ static struct sc_atr_table setcos_atrs[] = {
 	{ "3b:7b:18:00:00:80:62:01:54:56:46:69:6e:45:49:44", NULL, NULL, SC_CARD_TYPE_SETCOS_FINEID_V2, _FINEID_BROKEN_SELECT_FLAG, NULL },
 	/* Swedish NIDEL card */
 	{ "3b:9f:94:80:1f:c3:00:68:10:44:05:01:46:49:53:45:31:c8:07:90:00:18", NULL, NULL, SC_CARD_TYPE_SETCOS_NIDEL, 0, NULL },
+	/* Swedish CryptoTech/NDB JCOP 1 card */
+	{ "3b:e8:00:00:81:31:fe:45:00:73:c8:40:00:00:90:00:88", NULL, NULL, SC_CARD_TYPE_SETCOS_NDB_JCOP1, 0, NULL },
 	/* Setcos 4.4.1 */
 	{ "3b:9f:94:80:1f:c3:00:68:11:44:05:01:46:49:53:45:31:c8:00:00:00:00", "ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:ff:00:00:00:00", NULL, SC_CARD_TYPE_SETCOS_44, 0, NULL },
 	{ NULL, NULL, NULL, 0, 0, NULL }
@@ -170,6 +172,7 @@ static int setcos_init(sc_card_t *card)
 	case SC_CARD_TYPE_SETCOS_FINEID:
 	case SC_CARD_TYPE_SETCOS_FINEID_V2_2048:
 	case SC_CARD_TYPE_SETCOS_NIDEL:
+	case SC_CARD_TYPE_SETCOS_NDB_JCOP1:
 		card->cla = 0x00;
 		select_pkcs15_app(card);
 		if (card->flags & SC_CARD_FLAG_RNG)
@@ -206,6 +209,7 @@ static int setcos_init(sc_card_t *card)
 		break;
 	case SC_CARD_TYPE_SETCOS_44:
 	case SC_CARD_TYPE_SETCOS_NIDEL:
+	case SC_CARD_TYPE_SETCOS_NDB_JCOP1:
 	case SC_CARD_TYPE_SETCOS_EID_V2_0:
 	case SC_CARD_TYPE_SETCOS_EID_V2_1:
 		{
@@ -344,6 +348,7 @@ static int setcos_construct_fci(sc_card_t *card, const sc_file_t *file, u8 *out,
 {
 	if (card->type == SC_CARD_TYPE_SETCOS_44 || 
 	    card->type == SC_CARD_TYPE_SETCOS_NIDEL ||
+	    card->type == SC_CARD_TYPE_SETCOS_NDB_JCOP1 ||
 	    SETCOS_IS_EID_APPLET(card))
 		return setcos_construct_fci_44(card, file, out, outlen);
 	else
@@ -575,6 +580,7 @@ static int setcos_set_security_env2(sc_card_t *card,
 
 	if (card->type == SC_CARD_TYPE_SETCOS_44 ||
 	    card->type == SC_CARD_TYPE_SETCOS_NIDEL ||
+	    card->type == SC_CARD_TYPE_SETCOS_NDB_JCOP1 ||
 	    SETCOS_IS_EID_APPLET(card)) {
 		if (env->flags & SC_SEC_ENV_KEY_REF_ASYMMETRIC) {
 			sc_debug(card->ctx, SC_LOG_DEBUG_NORMAL, "asymmetric keyref not supported.\n");
@@ -599,6 +605,7 @@ static int setcos_set_security_env2(sc_card_t *card,
 		           (card->type == SC_CARD_TYPE_SETCOS_FINEID_V2_2048) ||
 		           (card->type == SC_CARD_TYPE_SETCOS_44) ||
 			   (card->type == SC_CARD_TYPE_SETCOS_NIDEL) || 
+			   (card->type == SC_CARD_TYPE_SETCOS_NDB_JCOP1) ||
 			   SETCOS_IS_EID_APPLET(card)) ? 0x41 : 0x81;
 		apdu.p2 = 0xB6;
 		break;
@@ -618,7 +625,8 @@ static int setcos_set_security_env2(sc_card_t *card,
 		memcpy(p, env->file_ref.value, env->file_ref.len);
 		p += env->file_ref.len;
 	}
-	if (env->flags & SC_SEC_ENV_KEY_REF_PRESENT) {
+	if (card->type != SC_CARD_TYPE_SETCOS_NDB_JCOP1 &&
+	    env->flags & SC_SEC_ENV_KEY_REF_PRESENT) {
 		if (env->flags & SC_SEC_ENV_KEY_REF_ASYMMETRIC)
 			*p++ = 0x83;
 		else
@@ -682,6 +690,7 @@ static int setcos_set_security_env(sc_card_t *card,
 		case SC_CARD_TYPE_SETCOS_FINEID:
 		case SC_CARD_TYPE_SETCOS_FINEID_V2_2048:
 		case SC_CARD_TYPE_SETCOS_NIDEL:
+		case SC_CARD_TYPE_SETCOS_NDB_JCOP1:
 		case SC_CARD_TYPE_SETCOS_44:
 		case SC_CARD_TYPE_SETCOS_EID_V2_0:
 		case SC_CARD_TYPE_SETCOS_EID_V2_1:
@@ -787,7 +796,7 @@ static void parse_sec_attr_44(sc_file_t *file, const u8 *buf, size_t len)
 	const int*	p_idx;
 
 	/* Check all sub-AC definitions whitin the total AC */
-	while (len > 1) {				/* minimum length = 2 */
+	while ((int)len > 1) {				/* minimum length = 2 */
 		int	iACLen   = buf[iOffset] & 0x0F;
 
 		iPinCount = -1;			/* default no pin required */
@@ -916,6 +925,7 @@ static int setcos_select_file(sc_card_t *card,
 	if (file != NULL) {
 		if (card->type == SC_CARD_TYPE_SETCOS_44 ||
 		    card->type == SC_CARD_TYPE_SETCOS_NIDEL ||
+		    card->type == SC_CARD_TYPE_SETCOS_NDB_JCOP1 ||
 		    SETCOS_IS_EID_APPLET(card))
 			parse_sec_attr_44(*file, (*file)->sec_attr, (*file)->sec_attr_len);
 		else
@@ -932,6 +942,7 @@ static int setcos_list_files(sc_card_t *card, u8 * buf, size_t buflen)
 	sc_format_apdu(card, &apdu, SC_APDU_CASE_2_SHORT, 0xAA, 0, 0);
 	if (card->type == SC_CARD_TYPE_SETCOS_44 || 
 	    card->type == SC_CARD_TYPE_SETCOS_NIDEL ||
+	    card->type == SC_CARD_TYPE_SETCOS_NDB_JCOP1 ||
 	    SETCOS_IS_EID_APPLET(card))
 		apdu.cla = 0x80;
 	apdu.resp = buf;
